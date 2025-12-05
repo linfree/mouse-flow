@@ -12,16 +12,17 @@ import (
 )
 
 const (
-	GWL_EXSTYLE      = -20
-	WS_EX_TOOLWINDOW = 0x00000080
-	WS_EX_APPWINDOW  = 0x00040000
-	WS_EX_LAYERED    = 0x00080000
-	SWP_NOSIZE       = 0x0001
-	SWP_NOMOVE       = 0x0002
-	SWP_NOZORDER     = 0x0004
-	SWP_FRAMECHANGED = 0x0020
-	LWA_COLORKEY     = 0x00000001
-	LWA_ALPHA        = 0x00000002
+	GWL_EXSTYLE       = -20
+	WS_EX_TOOLWINDOW  = 0x00000080
+	WS_EX_APPWINDOW   = 0x00040000
+	WS_EX_LAYERED     = 0x00080000
+	WS_EX_TRANSPARENT = 0x00000020
+	SWP_NOSIZE        = 0x0001
+	SWP_NOMOVE        = 0x0002
+	SWP_NOZORDER      = 0x0004
+	SWP_FRAMECHANGED  = 0x0020
+	LWA_COLORKEY      = 0x00000001
+	LWA_ALPHA         = 0x00000002
 )
 
 var (
@@ -241,20 +242,15 @@ func main() {
 				exStyle := win.GetWindowLong(hwnd, GWL_EXSTYLE)
 
 				// 添加 LAYERED 以确保 Windows 复合透明正常工作
-				newExStyle := (exStyle & ^WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW | WS_EX_LAYERED
+				// 移除 WS_EX_LAYERED，因为 DWM 玻璃效果不需要它，且它可能与 DX 冲突
+				newExStyle := (exStyle & ^WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT
 
 				if newExStyle != exStyle {
 					win.SetWindowLong(hwnd, GWL_EXSTYLE, newExStyle)
-					log.Println("Window style updated to hide from taskbar with layered transparency")
+					log.Println("Window style updated to hide from taskbar with passthrough")
 				}
 
-				// 设置分层窗口属性：使用整体不衰减的 alpha，确保透明复合开启
-				_, _, _ = procSetLayeredWindowAttributes.Call(
-					uintptr(hwnd),
-					uintptr(0),                      // crKey: 使用黑色作为颜色键
-					uintptr(uint8(255)),             // bAlpha: 255（不衰减）
-					uintptr(LWA_ALPHA|LWA_COLORKEY), // 同时启用 Alpha 与颜色键
-				)
+				// 移除 SetLayeredWindowAttributes 调用，因为它会破坏 DWM 玻璃效果
 
 				// 使用 DWM 扩展玻璃到整个客户端区域，避免黑底
 				m := MARGINS{-1, -1, -1, -1}

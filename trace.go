@@ -103,8 +103,8 @@ func (tm *TraceManager) Update(mx, my int) bool {
 
 // Draw 绘制轨迹
 func (tm *TraceManager) Draw(screen *ebiten.Image) {
-	// 使用颜色键透明策略：清屏为纯黑，配合 LWA_COLORKEY 将黑色作为透明
-	screen.Fill(color.RGBA{0, 0, 0, 255})
+	// 透明清屏，避免整屏黑底
+	screen.Fill(color.RGBA{0, 0, 0, 0})
 
 	if len(tm.points) < 2 {
 		return

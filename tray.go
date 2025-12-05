@@ -95,8 +95,22 @@ func RunTray(quitChan chan struct{}, openConfigChan chan struct{}) {
 	nid.UFlags = win.NIF_ICON | win.NIF_MESSAGE | win.NIF_TIP
 	nid.UCallbackMessage = WM_TRAY
 
-	// 加载系统图标 (IDI_APPLICATION)
-	nid.HIcon = win.LoadIcon(0, MAKEINTRESOURCE(win.IDI_APPLICATION))
+	// 加载图标逻辑
+	// 1. 尝试加载本地 icon.ico 文件
+	// 2. 如果失败，加载系统默认图标
+	hIcon := win.HICON(win.LoadImage(
+		0,
+		syscall.StringToUTF16Ptr("icon.ico"),
+		win.IMAGE_ICON,
+		0, 0,
+		win.LR_LOADFROMFILE|win.LR_DEFAULTSIZE,
+	))
+
+	if hIcon == 0 {
+		// 加载系统图标 (IDI_APPLICATION)
+		hIcon = win.LoadIcon(0, MAKEINTRESOURCE(win.IDI_APPLICATION))
+	}
+	nid.HIcon = hIcon
 
 	// 设置提示文本
 	tip := syscall.StringToUTF16("Mouse Flow - 鼠标痕迹工具")

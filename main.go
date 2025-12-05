@@ -11,13 +11,15 @@ import (
 )
 
 const (
-	GWL_EXSTYLE      = -20
-	WS_EX_TOOLWINDOW = 0x00000080
-	WS_EX_APPWINDOW  = 0x00040000
-	SWP_NOSIZE       = 0x0001
-	SWP_NOMOVE       = 0x0002
-	SWP_NOZORDER     = 0x0004
-	SWP_FRAMECHANGED = 0x0020
+	GWL_EXSTYLE       = -20
+	WS_EX_TOOLWINDOW  = 0x00000080
+	WS_EX_APPWINDOW   = 0x00040000
+	WS_EX_LAYERED     = 0x00080000
+	WS_EX_TRANSPARENT = 0x00000020
+	SWP_NOSIZE        = 0x0001
+	SWP_NOMOVE        = 0x0002
+	SWP_NOZORDER      = 0x0004
+	SWP_FRAMECHANGED  = 0x0020
 )
 
 type Game struct {
@@ -222,17 +224,20 @@ func main() {
 				// 获取当前扩展样式
 				exStyle := win.GetWindowLong(hwnd, GWL_EXSTYLE)
 
-				// 移除 APPWINDOW，添加 TOOLWINDOW
-				newExStyle := (exStyle & ^WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW
+				// 移除 APPWINDOW，添加 TOOLWINDOW，并强制确保 LAYERED 和 TRANSPARENT 存在
+				// WS_EX_LAYERED 对于透明窗口是必须的
+				// WS_EX_TRANSPARENT 对于鼠标穿透是必须的
+				newExStyle := (exStyle & ^WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_TRANSPARENT
 
 				if newExStyle != exStyle {
 					win.SetWindowLong(hwnd, GWL_EXSTYLE, newExStyle)
-					log.Println("Window style updated to hide from taskbar")
+					log.Println("Window style updated to hide from taskbar and ensure transparency")
 				}
 
 				// 强制设置窗口位置和大小，覆盖整个虚拟屏幕
 				// 即使 Ebiten/GLFW 试图限制它，我们也强制覆盖
 				// SWP_NOACTIVATE = 0x0010
+				// 注意：如果不小心进入独占全屏模式可能会导致黑屏，所以这里确保是无边框窗口
 				win.SetWindowPos(hwnd, 0, int32(vx), int32(vy), int32(vw), int32(vh),
 					win.SWP_NOZORDER|0x0010|SWP_FRAMECHANGED)
 

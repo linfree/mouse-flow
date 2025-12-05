@@ -28,5 +28,14 @@ go.work.sum
 .env
 
 # Editor/IDE
-# .idea/
-# .vscode/
+.idea/
+.vscode/
+
+# Config
+config.json
+
+# Logs
+*.log
+
+# Build
+dist/

@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/lxn/win"
@@ -24,9 +25,18 @@ const (
 )
 
 var (
-	user32dll                      = syscall.NewLazyDLL("user32.dll")
-	procSetLayeredWindowAttributes = user32dll.NewProc("SetLayeredWindowAttributes")
+	user32dll                        = syscall.NewLazyDLL("user32.dll")
+	procSetLayeredWindowAttributes   = user32dll.NewProc("SetLayeredWindowAttributes")
+	dwmapi                           = syscall.NewLazyDLL("dwmapi.dll")
+	procDwmExtendFrameIntoClientArea = dwmapi.NewProc("DwmExtendFrameIntoClientArea")
 )
+
+type MARGINS struct {
+	CxLeftWidth    int32
+	CxRightWidth   int32
+	CyTopHeight    int32
+	CyBottomHeight int32
+}
 
 type Game struct {
 	traceManager *TraceManager
@@ -239,12 +249,17 @@ func main() {
 				}
 
 				// 设置分层窗口属性：使用整体不衰减的 alpha，确保透明复合开启
-				// 这不会改变每像素的透明度，但能避免出现整屏黑底的问题
 				_, _, _ = procSetLayeredWindowAttributes.Call(
 					uintptr(hwnd),
 					uintptr(0),          // crKey: 不使用颜色键
 					uintptr(uint8(255)), // bAlpha: 255（不衰减）
 					uintptr(LWA_ALPHA),  // 使用 Alpha 模式
+				)
+
+				// 使用 DWM 扩展玻璃到整个客户端区域，避免黑底
+				m := MARGINS{-1, -1, -1, -1}
+				_, _, _ = procDwmExtendFrameIntoClientArea.Call(
+					uintptr(hwnd), uintptr(unsafe.Pointer(&m)),
 				)
 
 				// 强制设置窗口位置和大小，覆盖整个虚拟屏幕

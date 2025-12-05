@@ -103,6 +103,9 @@ func (tm *TraceManager) Update(mx, my int) bool {
 
 // Draw 绘制轨迹
 func (tm *TraceManager) Draw(screen *ebiten.Image) {
+	// 透明清屏，避免整屏黑底
+	screen.Fill(color.RGBA{0, 0, 0, 0})
+
 	if len(tm.points) < 2 {
 		return
 	}

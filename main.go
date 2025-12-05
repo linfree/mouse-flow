@@ -14,10 +14,18 @@ const (
 	GWL_EXSTYLE      = -20
 	WS_EX_TOOLWINDOW = 0x00000080
 	WS_EX_APPWINDOW  = 0x00040000
+	WS_EX_LAYERED    = 0x00080000
 	SWP_NOSIZE       = 0x0001
 	SWP_NOMOVE       = 0x0002
 	SWP_NOZORDER     = 0x0004
 	SWP_FRAMECHANGED = 0x0020
+	LWA_COLORKEY     = 0x00000001
+	LWA_ALPHA        = 0x00000002
+)
+
+var (
+	user32dll                      = syscall.NewLazyDLL("user32.dll")
+	procSetLayeredWindowAttributes = user32dll.NewProc("SetLayeredWindowAttributes")
 )
 
 type Game struct {
@@ -222,13 +230,22 @@ func main() {
 				// 获取当前扩展样式
 				exStyle := win.GetWindowLong(hwnd, GWL_EXSTYLE)
 
-				// 仅移除 APPWINDOW，添加 TOOLWINDOW，透明由 Ebiten 管理
-				newExStyle := (exStyle & ^WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW
+				// 添加 LAYERED 以确保 Windows 复合透明正常工作
+				newExStyle := (exStyle & ^WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW | WS_EX_LAYERED
 
 				if newExStyle != exStyle {
 					win.SetWindowLong(hwnd, GWL_EXSTYLE, newExStyle)
-					log.Println("Window style updated to hide from taskbar")
+					log.Println("Window style updated to hide from taskbar with layered transparency")
 				}
+
+				// 设置分层窗口属性：使用整体不衰减的 alpha，确保透明复合开启
+				// 这不会改变每像素的透明度，但能避免出现整屏黑底的问题
+				_, _, _ = procSetLayeredWindowAttributes.Call(
+					uintptr(hwnd),
+					uintptr(0),          // crKey: 不使用颜色键
+					uintptr(uint8(255)), // bAlpha: 255（不衰减）
+					uintptr(LWA_ALPHA),  // 使用 Alpha 模式
+				)
 
 				// 强制设置窗口位置和大小，覆盖整个虚拟屏幕
 				// 即使 Ebiten/GLFW 试图限制它，我们也强制覆盖

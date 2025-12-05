@@ -171,21 +171,20 @@ func main() {
 	title := "MouseFlowOverlay"
 	ebiten.SetWindowTitle(title)
 
-	// 隐藏任务栏图标
+	// 隐藏任务栏图标并强制全屏覆盖
 	go func() {
 		// 尝试多次，以防窗口创建延迟
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
 
 		titlePtr := syscall.StringToUTF16Ptr(title)
+		applyCount := 0
 
 		for range ticker.C {
 			// FindWindow 可能找不到，如果标题还没设置好。
 			// Ebiten 的默认类名不确定，所以用 nil
 			hwnd := win.FindWindow(nil, titlePtr)
 			if hwnd != 0 {
-				log.Printf("Found window HWND: %X", hwnd)
-
 				// 获取当前扩展样式
 				exStyle := win.GetWindowLong(hwnd, GWL_EXSTYLE)
 
@@ -194,22 +193,22 @@ func main() {
 
 				if newExStyle != exStyle {
 					win.SetWindowLong(hwnd, GWL_EXSTYLE, newExStyle)
-
-					// 强制刷新窗口样式
-					win.SetWindowPos(hwnd, 0, 0, 0, 0, 0,
-						SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_FRAMECHANGED)
-
 					log.Println("Window style updated to hide from taskbar")
 				}
 
-				// 找到并设置后可以退出循环，或者继续监控以防被重置？
-				// 通常只需要设置一次。但为了保险起见，我们可以多检测几次。
-				// 这里我们假设设置成功后就退出了。
+				// 强制设置窗口位置和大小，覆盖整个虚拟屏幕
+				// 即使 Ebiten/GLFW 试图限制它，我们也强制覆盖
+				// SWP_NOACTIVATE = 0x0010
+				win.SetWindowPos(hwnd, 0, int32(vx), int32(vy), int32(vw), int32(vh),
+					win.SWP_NOZORDER|0x0010|SWP_FRAMECHANGED)
 
-				// 再次检查确认
-				currentStyle := win.GetWindowLong(hwnd, GWL_EXSTYLE)
-				if currentStyle&WS_EX_TOOLWINDOW != 0 {
-					return
+				applyCount++
+				if applyCount > 5 {
+					// 再次检查确认
+					currentStyle := win.GetWindowLong(hwnd, GWL_EXSTYLE)
+					if currentStyle&WS_EX_TOOLWINDOW != 0 {
+						return
+					}
 				}
 			}
 		}

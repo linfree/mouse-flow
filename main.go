@@ -251,9 +251,9 @@ func main() {
 				// 设置分层窗口属性：使用整体不衰减的 alpha，确保透明复合开启
 				_, _, _ = procSetLayeredWindowAttributes.Call(
 					uintptr(hwnd),
-					uintptr(0),          // crKey: 不使用颜色键
-					uintptr(uint8(255)), // bAlpha: 255（不衰减）
-					uintptr(LWA_ALPHA),  // 使用 Alpha 模式
+					uintptr(0),                      // crKey: 使用黑色作为颜色键
+					uintptr(uint8(255)),             // bAlpha: 255（不衰减）
+					uintptr(LWA_ALPHA|LWA_COLORKEY), // 同时启用 Alpha 与颜色键
 				)
 
 				// 使用 DWM 扩展玻璃到整个客户端区域，避免黑底

@@ -55,8 +55,30 @@ func (g *Game) Update() error {
 	if g.hwnd != 0 {
 		var rect win.RECT
 		win.GetWindowRect(g.hwnd, &rect)
-		mx = int(pt.X) - int(rect.Left)
-		my = int(pt.Y) - int(rect.Top)
+
+		// 使用比例映射来解决 DPI 缩放导致的不一致问题
+		// 窗口的物理像素大小
+		windowWidth := int(rect.Right - rect.Left)
+		windowHeight := int(rect.Bottom - rect.Top)
+
+		// 避免除以 0
+		if windowWidth > 0 && windowHeight > 0 {
+			// 计算鼠标相对于窗口左上角的偏移量
+			offsetX := int(pt.X) - int(rect.Left)
+			offsetY := int(pt.Y) - int(rect.Top)
+
+			// 计算归一化比例 (0.0 - 1.0)
+			rx := float64(offsetX) / float64(windowWidth)
+			ry := float64(offsetY) / float64(windowHeight)
+
+			// 映射到 Ebiten 的 Layout 坐标系
+			mx = int(rx * float64(g.screenWidth))
+			my = int(ry * float64(g.screenHeight))
+		} else {
+			// 如果窗口大小异常，回退到简单差值
+			mx = int(pt.X) - int(rect.Left)
+			my = int(pt.Y) - int(rect.Top)
+		}
 	} else {
 		// 尝试查找窗口句柄 (如果 main 中的协程还没找到)
 		// 注意：频繁 FindWindow 可能有开销，但这里只有在找不到时才调用
@@ -64,10 +86,22 @@ func (g *Game) Update() error {
 		hwnd := win.FindWindow(nil, titlePtr)
 		if hwnd != 0 {
 			g.hwnd = hwnd
+			// 递归调用一次或直接使用上面的逻辑，为了简单，这里重复逻辑但简化
 			var rect win.RECT
 			win.GetWindowRect(g.hwnd, &rect)
-			mx = int(pt.X) - int(rect.Left)
-			my = int(pt.Y) - int(rect.Top)
+			windowWidth := int(rect.Right - rect.Left)
+			windowHeight := int(rect.Bottom - rect.Top)
+			if windowWidth > 0 && windowHeight > 0 {
+				offsetX := int(pt.X) - int(rect.Left)
+				offsetY := int(pt.Y) - int(rect.Top)
+				rx := float64(offsetX) / float64(windowWidth)
+				ry := float64(offsetY) / float64(windowHeight)
+				mx = int(rx * float64(g.screenWidth))
+				my = int(ry * float64(g.screenHeight))
+			} else {
+				mx = int(pt.X) - int(rect.Left)
+				my = int(pt.Y) - int(rect.Top)
+			}
 		} else {
 			// 实在找不到，暂时使用虚拟屏幕原点
 			x := win.GetSystemMetrics(win.SM_XVIRTUALSCREEN)
@@ -204,6 +238,8 @@ func main() {
 
 				applyCount++
 				if applyCount > 5 {
+					// 设置 HWND 给 Game
+					game.hwnd = hwnd
 					// 再次检查确认
 					currentStyle := win.GetWindowLong(hwnd, GWL_EXSTYLE)
 					if currentStyle&WS_EX_TOOLWINDOW != 0 {

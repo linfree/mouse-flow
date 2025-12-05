@@ -96,15 +96,29 @@ func RunTray(quitChan chan struct{}, openConfigChan chan struct{}) {
 	nid.UCallbackMessage = WM_TRAY
 
 	// 加载图标逻辑
-	// 1. 尝试加载本地 icon.ico 文件
-	// 2. 如果失败，加载系统默认图标
+	// 1. 尝试加载嵌入资源 (ID 1)
+	// 2. 尝试加载本地 icon.ico 文件 (开发模式)
+	// 3. 如果失败，加载系统默认图标
+
+	// 尝试加载资源图标 (ID 1)
 	hIcon := win.HICON(win.LoadImage(
-		0,
-		syscall.StringToUTF16Ptr("icon.ico"),
+		hInstance,
+		MAKEINTRESOURCE(1), // rsrc 默认 ID通常为 1
 		win.IMAGE_ICON,
 		0, 0,
-		win.LR_LOADFROMFILE|win.LR_DEFAULTSIZE,
+		win.LR_DEFAULTSIZE,
 	))
+
+	if hIcon == 0 {
+		// 尝试加载本地文件
+		hIcon = win.HICON(win.LoadImage(
+			0,
+			syscall.StringToUTF16Ptr("icon.ico"),
+			win.IMAGE_ICON,
+			0, 0,
+			win.LR_LOADFROMFILE|win.LR_DEFAULTSIZE,
+		))
+	}
 
 	if hIcon == 0 {
 		// 加载系统图标 (IDI_APPLICATION)

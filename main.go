@@ -28,6 +28,9 @@ type Game struct {
 	screenWidth  int
 	screenHeight int
 
+	// 窗口句柄
+	hwnd win.HWND
+
 	// 性能优化：空闲检测
 	idleCounter int
 }
@@ -44,13 +47,35 @@ func (g *Game) Update() error {
 	var pt win.POINT
 	win.GetCursorPos(&pt)
 
-	// 获取虚拟屏幕的左上角坐标
-	x := win.GetSystemMetrics(win.SM_XVIRTUALSCREEN)
-	y := win.GetSystemMetrics(win.SM_YVIRTUALSCREEN)
+	// 计算相对于窗口的坐标
+	// 如果找到了窗口句柄，就用真实的窗口位置计算
+	// 否则回退到虚拟屏幕计算（虽然这可能是错的）
+	mx, my := 0, 0
 
-	// 计算相对于虚拟屏幕的坐标
-	mx := int(pt.X) - int(x)
-	my := int(pt.Y) - int(y)
+	if g.hwnd != 0 {
+		var rect win.RECT
+		win.GetWindowRect(g.hwnd, &rect)
+		mx = int(pt.X) - int(rect.Left)
+		my = int(pt.Y) - int(rect.Top)
+	} else {
+		// 尝试查找窗口句柄 (如果 main 中的协程还没找到)
+		// 注意：频繁 FindWindow 可能有开销，但这里只有在找不到时才调用
+		titlePtr := syscall.StringToUTF16Ptr("MouseFlowOverlay")
+		hwnd := win.FindWindow(nil, titlePtr)
+		if hwnd != 0 {
+			g.hwnd = hwnd
+			var rect win.RECT
+			win.GetWindowRect(g.hwnd, &rect)
+			mx = int(pt.X) - int(rect.Left)
+			my = int(pt.Y) - int(rect.Top)
+		} else {
+			// 实在找不到，暂时使用虚拟屏幕原点
+			x := win.GetSystemMetrics(win.SM_XVIRTUALSCREEN)
+			y := win.GetSystemMetrics(win.SM_YVIRTUALSCREEN)
+			mx = int(pt.X) - int(x)
+			my = int(pt.Y) - int(y)
+		}
+	}
 
 	isActive := g.traceManager.Update(mx, my)
 

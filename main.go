@@ -200,6 +200,10 @@ func main() {
 		}
 	}()
 
+	// Hack: 增加高度以避免 Windows 将其识别为独占全屏应用，从而导致 DWM 透明失效
+	// 特别是在单显示器环境下
+	vh += 1
+
 	// 初始化游戏
 	game := &Game{
 		traceManager: NewTraceManager(cfg),

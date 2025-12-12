@@ -21,16 +21,27 @@ const (
 	SWP_NOMOVE        = 0x0002
 	SWP_NOZORDER      = 0x0004
 	SWP_FRAMECHANGED  = 0x0020
+	SWP_NOACTIVATE    = 0x0010
 	LWA_COLORKEY      = 0x00000001
 	LWA_ALPHA         = 0x00000002
+	VK_LBUTTON        = 0x01
 )
 
 var (
 	user32dll                        = syscall.NewLazyDLL("user32.dll")
 	procSetLayeredWindowAttributes   = user32dll.NewProc("SetLayeredWindowAttributes")
+	procGetAsyncKeyState             = user32dll.NewProc("GetAsyncKeyState")
 	dwmapi                           = syscall.NewLazyDLL("dwmapi.dll")
 	procDwmExtendFrameIntoClientArea = dwmapi.NewProc("DwmExtendFrameIntoClientArea")
 )
+
+// isMouseLeftPressed 使用 GetAsyncKeyState 检测鼠标左键状态
+// 这可以绕过 WS_EX_TRANSPARENT 导致的 Ebiten 无法接收鼠标事件的问题
+func isMouseLeftPressed() bool {
+	ret, _, _ := procGetAsyncKeyState.Call(uintptr(VK_LBUTTON))
+	// 如果最高位被设置 (0x8000)，则表示键被按下
+	return (ret & 0x8000) != 0
+}
 
 type MARGINS struct {
 	CxLeftWidth    int32
@@ -52,6 +63,13 @@ type Game struct {
 
 	// 性能优化：空闲检测
 	idleCounter int
+
+	// 鼠标状态
+	prevLeftMouseButtonPressed bool
+
+	// 缓存窗口位置，避免频繁调用 GetWindowRect
+	cachedWindowRect win.RECT
+	rectUpdateTimer  int
 }
 
 func (g *Game) Update() error {
@@ -60,6 +78,12 @@ func (g *Game) Update() error {
 	case <-g.quitChan:
 		return ebiten.Termination
 	default:
+	}
+
+	// 极度空闲优化：如果 idleCounter 很高，跳过一些帧的逻辑更新？
+	// Ebiten 还是会调用 Draw，但我们可以减少 Update 的频率
+	if g.idleCounter > 300 { // 5秒无操作
+		ebiten.SetTPS(5) // 极低刷新率
 	}
 
 	// 获取鼠标位置
@@ -72,8 +96,13 @@ func (g *Game) Update() error {
 	mx, my := 0, 0
 
 	if g.hwnd != 0 {
-		var rect win.RECT
-		win.GetWindowRect(g.hwnd, &rect)
+		// 缓存窗口位置，每 60 帧更新一次 (约 1 秒)
+		g.rectUpdateTimer++
+		if g.rectUpdateTimer > 60 || g.cachedWindowRect.Right == 0 {
+			win.GetWindowRect(g.hwnd, &g.cachedWindowRect)
+			g.rectUpdateTimer = 0
+		}
+		rect := g.cachedWindowRect
 
 		// 使用比例映射来解决 DPI 缩放导致的不一致问题
 		// 窗口的物理像素大小
@@ -130,6 +159,14 @@ func (g *Game) Update() error {
 		}
 	}
 
+	// 检测鼠标点击 (波纹效果)
+	// 使用 GetAsyncKeyState 代替 ebiten.IsMouseButtonPressed
+	leftPressed := isMouseLeftPressed()
+	if leftPressed && !g.prevLeftMouseButtonPressed {
+		g.traceManager.AddRipple(mx, my)
+	}
+	g.prevLeftMouseButtonPressed = leftPressed
+
 	isActive := g.traceManager.Update(mx, my)
 
 	// 智能休眠逻辑
@@ -138,7 +175,9 @@ func (g *Game) Update() error {
 		ebiten.SetTPS(60) // 恢复高刷新率以保证流畅动画
 	} else {
 		g.idleCounter++
-		if g.idleCounter > 60 { // 约 1 秒无活动
+		if g.idleCounter > 300 {
+			ebiten.SetTPS(5) // 极低刷新率
+		} else if g.idleCounter > 60 { // 约 1 秒无活动
 			ebiten.SetTPS(15) // 降低刷新率以节省 CPU/GPU
 		}
 	}
@@ -174,6 +213,9 @@ func main() {
 		log.Println("Config not found, using default")
 		cfg = DefaultConfig()
 	}
+
+	// 设置语言
+	SetLanguage(cfg.Language)
 
 	// 获取虚拟屏幕位置和尺寸
 	vx := int(win.GetSystemMetrics(win.SM_XVIRTUALSCREEN))
@@ -264,10 +306,10 @@ func main() {
 
 				// 强制设置窗口位置和大小，覆盖整个虚拟屏幕
 				// 即使 Ebiten/GLFW 试图限制它，我们也强制覆盖
-				// SWP_NOACTIVATE = 0x0010
-				// 注意：如果不小心进入独占全屏模式可能会导致黑屏，所以这里确保是无边框窗口
-				win.SetWindowPos(hwnd, 0, int32(vx), int32(vy), int32(vw), int32(vh),
-					win.SWP_NOZORDER|0x0010|SWP_FRAMECHANGED)
+				// 使用 HWND_TOPMOST (-1) 确保窗口在最上层
+				// 移除 SWP_NOZORDER 以允许改变 Z 序
+				win.SetWindowPos(hwnd, win.HWND_TOPMOST, int32(vx), int32(vy), int32(vw), int32(vh),
+					SWP_NOACTIVATE|SWP_FRAMECHANGED)
 
 				applyCount++
 				if applyCount > 5 {
@@ -286,6 +328,28 @@ func main() {
 	// 解决 walk 库可能的初始化问题
 	// 需要确保 InitCommonControls 被调用，不过 walk 包通常会在 init 中做。
 	// 关键是 manifest 文件。
+
+	// 启动一个协程定期维护窗口置顶状态，防止被新打开的窗口遮挡
+	go func() {
+		// 等待初始化完成
+		time.Sleep(2 * time.Second)
+
+		ticker := time.NewTicker(100 * time.Millisecond) // 提高频率到 100ms
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-quitChan:
+				return
+			case <-ticker.C:
+				if game.hwnd != 0 {
+					// 仅维护 Z 序，不改变大小和位置
+					win.SetWindowPos(game.hwnd, win.HWND_TOPMOST, 0, 0, 0, 0,
+						SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE)
+				}
+			}
+		}
+	}()
 
 	if err := ebiten.RunGame(game); err != nil {
 		if err != ebiten.Termination {

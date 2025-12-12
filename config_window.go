@@ -15,21 +15,42 @@ func ShowConfigWindow(cfg *Config, onUpdate func()) {
 
 	// 临时结构体用于数据绑定
 	type ConfigViewModel struct {
-		TailLength float64
-		TailWidth  float64
-		IsRainbow  bool
-		Red        int
-		Green      int
-		Blue       int
+		TailLength        float64
+		TailWidth         float64
+		IsRainbow         bool
+		IsRipple          bool
+		RippleGrowthSpeed float64
+		RippleDecaySpeed  float64
+		RippleWidth       float64
+		Red               int
+		Green             int
+		Blue              int
+		Language          string
 	}
 
 	vm := &ConfigViewModel{
-		TailLength: float64(cfg.TailLength),
-		TailWidth:  cfg.TailWidth,
-		IsRainbow:  cfg.IsRainbow,
-		Red:        int(cfg.TailColor[0]),
-		Green:      int(cfg.TailColor[1]),
-		Blue:       int(cfg.TailColor[2]),
+		TailLength:        float64(cfg.TailLength),
+		TailWidth:         cfg.TailWidth,
+		IsRainbow:         cfg.IsRainbow,
+		IsRipple:          cfg.IsRipple,
+		RippleGrowthSpeed: cfg.RippleGrowthSpeed,
+		RippleDecaySpeed:  cfg.RippleDecaySpeed,
+		RippleWidth:       cfg.RippleWidth,
+		Red:               int(cfg.TailColor[0]),
+		Green:             int(cfg.TailColor[1]),
+		Blue:              int(cfg.TailColor[2]),
+		Language:          cfg.Language,
+	}
+
+	// 语言选项
+	type LangOption struct {
+		Name  string
+		Value string
+	}
+	langOptions := []*LangOption{
+		{Name: T("LangAuto"), Value: "auto"},
+		{Name: T("LangZh"), Value: "zh"},
+		{Name: T("LangEn"), Value: "en"},
 	}
 
 	// 更新配置的回调
@@ -42,9 +63,17 @@ func ShowConfigWindow(cfg *Config, onUpdate func()) {
 		cfg.TailLength = int(vm.TailLength)
 		cfg.TailWidth = vm.TailWidth
 		cfg.IsRainbow = vm.IsRainbow
+		cfg.IsRipple = vm.IsRipple
+		cfg.RippleGrowthSpeed = vm.RippleGrowthSpeed
+		cfg.RippleDecaySpeed = vm.RippleDecaySpeed
+		cfg.RippleWidth = vm.RippleWidth
 		cfg.TailColor[0] = uint8(vm.Red)
 		cfg.TailColor[1] = uint8(vm.Green)
 		cfg.TailColor[2] = uint8(vm.Blue)
+		cfg.Language = vm.Language
+
+		// 应用语言设置 (注意：当前窗口的文本不会立即刷新，但下次打开或托盘菜单会生效)
+		SetLanguage(cfg.Language)
 
 		if onUpdate != nil {
 			onUpdate()
@@ -53,8 +82,8 @@ func ShowConfigWindow(cfg *Config, onUpdate func()) {
 
 	if _, err := (MainWindow{
 		AssignTo: &mainWindow,
-		Title:    "Mouse Flow Configuration",
-		Size:     Size{Width: 300, Height: 300},
+		Title:    T("Title"),
+		Size:     Size{Width: 320, Height: 450}, // 稍微增加高度
 		Layout:   VBox{},
 		DataBinder: DataBinder{
 			AssignTo:       &db,
@@ -64,17 +93,32 @@ func ShowConfigWindow(cfg *Config, onUpdate func()) {
 		},
 		Children: []Widget{
 			GroupBox{
-				Title:  "Appearance",
+				Title:  T("Language"),
+				Layout: HBox{},
+				Children: []Widget{
+					Label{Text: T("Language")},
+					ComboBox{
+						Value:                 Bind("Language"),
+						Model:                 langOptions,
+						BindingMember:         "Value",
+						DisplayMember:         "Name",
+						OnCurrentIndexChanged: update, // 选择即生效
+					},
+				},
+			},
+
+			GroupBox{
+				Title:  T("Appearance"),
 				Layout: Grid{Columns: 2},
 				Children: []Widget{
-					Label{Text: "Length:"},
+					Label{Text: T("Length")},
 					NumberEdit{
 						Value:          Bind("TailLength"),
 						OnValueChanged: update,
 						Decimals:       0,
 					},
 
-					Label{Text: "Width:"},
+					Label{Text: T("Width")},
 					NumberEdit{
 						Value:          Bind("TailWidth"),
 						OnValueChanged: update,
@@ -84,17 +128,51 @@ func ShowConfigWindow(cfg *Config, onUpdate func()) {
 			},
 
 			GroupBox{
-				Title:  "Color",
+				Title:  T("RippleSettings"),
 				Layout: Grid{Columns: 2},
 				Children: []Widget{
 					CheckBox{
-						Text:             "Rainbow Mode",
+						Text:             T("ClickRipple"),
+						Checked:          Bind("IsRipple"),
+						OnCheckedChanged: update,
+						ColumnSpan:       2,
+					},
+					Label{Text: T("RippleGrowth")},
+					NumberEdit{
+						Value:          Bind("RippleGrowthSpeed"),
+						OnValueChanged: update,
+						Decimals:       1,
+						Enabled:        Bind("vm.IsRipple"),
+					},
+					Label{Text: T("RippleDecay")},
+					NumberEdit{
+						Value:          Bind("RippleDecaySpeed"),
+						OnValueChanged: update,
+						Decimals:       3,
+						Enabled:        Bind("vm.IsRipple"),
+					},
+					Label{Text: T("RippleWidth")},
+					NumberEdit{
+						Value:          Bind("RippleWidth"),
+						OnValueChanged: update,
+						Decimals:       1,
+						Enabled:        Bind("vm.IsRipple"),
+					},
+				},
+			},
+
+			GroupBox{
+				Title:  T("ColorEffects"),
+				Layout: Grid{Columns: 2},
+				Children: []Widget{
+					CheckBox{
+						Text:             T("RainbowMode"),
 						Checked:          Bind("IsRainbow"),
 						OnCheckedChanged: update,
 						ColumnSpan:       2,
 					},
 
-					Label{Text: "Red:"},
+					Label{Text: T("Red")},
 					Slider{
 						Value:          Bind("Red"),
 						MinValue:       0,
@@ -103,7 +181,7 @@ func ShowConfigWindow(cfg *Config, onUpdate func()) {
 						Enabled:        Bind("!vm.IsRainbow"),
 					},
 
-					Label{Text: "Green:"},
+					Label{Text: T("Green")},
 					Slider{
 						Value:          Bind("Green"),
 						MinValue:       0,
@@ -112,7 +190,7 @@ func ShowConfigWindow(cfg *Config, onUpdate func()) {
 						Enabled:        Bind("!vm.IsRainbow"),
 					},
 
-					Label{Text: "Blue:"},
+					Label{Text: T("Blue")},
 					Slider{
 						Value:          Bind("Blue"),
 						MinValue:       0,
@@ -128,7 +206,7 @@ func ShowConfigWindow(cfg *Config, onUpdate func()) {
 				Children: []Widget{
 					HSpacer{},
 					PushButton{
-						Text: "Save & Close",
+						Text: T("SaveClose"),
 						OnClicked: func() {
 							update()
 							SaveConfig("config.json", cfg)

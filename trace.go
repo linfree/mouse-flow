@@ -14,9 +14,17 @@ type TracePoint struct {
 	Life float64 // 生命值 1.0 -> 0.0
 }
 
+// Ripple 点击波纹
+type Ripple struct {
+	X, Y   float64
+	Radius float64
+	Life   float64 // 1.0 -> 0.0
+}
+
 // TraceManager 管理轨迹生成和渲染
 type TraceManager struct {
 	points     []TracePoint // 优化：值类型切片
+	ripples    []Ripple
 	config     *Config
 	whiteImage *ebiten.Image
 
@@ -36,11 +44,25 @@ func NewTraceManager(cfg *Config) *TraceManager {
 	// 预分配容量，减少扩容
 	return &TraceManager{
 		points:     make([]TracePoint, 0, 200),
+		ripples:    make([]Ripple, 0, 20),
 		config:     cfg,
 		whiteImage: img,
 		vertices:   make([]ebiten.Vertex, 0, 1000),
 		indices:    make([]uint16, 0, 1000),
 	}
+}
+
+// AddRipple 添加一个点击波纹
+func (tm *TraceManager) AddRipple(x, y int) {
+	if !tm.config.IsRipple {
+		return
+	}
+	tm.ripples = append(tm.ripples, Ripple{
+		X:      float64(x),
+		Y:      float64(y),
+		Radius: 2.0,
+		Life:   1.0,
+	})
 }
 
 // Update 更新轨迹点
@@ -94,11 +116,24 @@ func (tm *TraceManager) Update(mx, my int) bool {
 			writeIdx++
 		}
 	}
-
 	// 裁剪切片
 	tm.points = tm.points[:writeIdx]
 
-	return len(tm.points) > 0
+	// 更新波纹
+	activeRipples := 0
+	for i := range tm.ripples {
+		tm.ripples[i].Radius += tm.config.RippleGrowthSpeed // 扩散速度
+		tm.ripples[i].Life -= tm.config.RippleDecaySpeed    // 消失速度
+		if tm.ripples[i].Life > 0 {
+			if activeRipples != i {
+				tm.ripples[activeRipples] = tm.ripples[i]
+			}
+			activeRipples++
+		}
+	}
+	tm.ripples = tm.ripples[:activeRipples]
+
+	return len(tm.points) > 0 || len(tm.ripples) > 0
 }
 
 // Draw 绘制轨迹
@@ -106,7 +141,7 @@ func (tm *TraceManager) Draw(screen *ebiten.Image) {
 	// 透明清屏，避免整屏黑底
 	screen.Fill(color.RGBA{0, 0, 0, 0})
 
-	if len(tm.points) < 2 {
+	if len(tm.points) < 2 && len(tm.ripples) == 0 {
 		return
 	}
 
@@ -120,69 +155,113 @@ func (tm *TraceManager) Draw(screen *ebiten.Image) {
 	b := float32(tm.config.TailColor[2]) / 255
 	a := float32(tm.config.TailColor[3]) / 255
 
-	width := tm.config.TailWidth
+	// 1. 绘制轨迹
+	if len(tm.points) >= 2 {
+		width := tm.config.TailWidth
+		for i := 0; i < len(tm.points)-1; i++ {
+			// 使用指针访问以避免复制大结构体（虽然这里结构体很小）
+			p1 := &tm.points[i]
+			p2 := &tm.points[i+1]
 
-	for i := 0; i < len(tm.points)-1; i++ {
-		// 使用指针访问以避免复制大结构体（虽然这里结构体很小）
-		p1 := &tm.points[i]
-		p2 := &tm.points[i+1]
+			// 计算方向向量
+			dx := p2.X - p1.X
+			dy := p2.Y - p1.Y
+			l := math.Hypot(dx, dy)
+			if l == 0 {
+				continue
+			}
 
-		// 计算方向向量
-		dx := p2.X - p1.X
-		dy := p2.Y - p1.Y
-		// 使用快速近似平方根？不需要，Hypot 够快且准确
-		l := math.Hypot(dx, dy)
-		if l == 0 {
+			// 归一化并旋转90度得到法向量
+			nx := -dy / l
+			ny := dx / l
+
+			// 计算宽度
+			w1 := width * p1.Life
+			w2 := width * p2.Life
+
+			// 计算颜色 alpha
+			// 优化：只乘一次 alpha
+			c1A := a * float32(p1.Life)
+			c2A := a * float32(p2.Life)
+
+			// P1 Left
+			v1 := ebiten.Vertex{
+				DstX:   float32(p1.X + nx*w1),
+				DstY:   float32(p1.Y + ny*w1),
+				ColorR: r * c1A, ColorG: g * c1A, ColorB: b * c1A, ColorA: c1A,
+			}
+			// P1 Right
+			v2 := ebiten.Vertex{
+				DstX:   float32(p1.X - nx*w1),
+				DstY:   float32(p1.Y - ny*w1),
+				ColorR: r * c1A, ColorG: g * c1A, ColorB: b * c1A, ColorA: c1A,
+			}
+			// P2 Left
+			v3 := ebiten.Vertex{
+				DstX:   float32(p2.X + nx*w2),
+				DstY:   float32(p2.Y + ny*w2),
+				ColorR: r * c2A, ColorG: g * c2A, ColorB: b * c2A, ColorA: c2A,
+			}
+			// P2 Right
+			v4 := ebiten.Vertex{
+				DstX:   float32(p2.X - nx*w2),
+				DstY:   float32(p2.Y - ny*w2),
+				ColorR: r * c2A, ColorG: g * c2A, ColorB: b * c2A, ColorA: c2A,
+			}
+
+			baseIndex := uint16(len(tm.vertices))
+			tm.vertices = append(tm.vertices, v1, v2, v3, v4)
+			tm.indices = append(tm.indices, baseIndex, baseIndex+1, baseIndex+2, baseIndex+1, baseIndex+3, baseIndex+2)
+		}
+	}
+
+	// 2. 绘制波纹 (圆环)
+	const segments = 20 // 降低分段数以优化性能
+	thickness := tm.config.RippleWidth
+	if thickness <= 0 {
+		thickness = 2.0
+	}
+
+	for _, ripple := range tm.ripples {
+		baseAlpha := float32(ripple.Life) * a
+		if baseAlpha <= 0 {
 			continue
 		}
 
-		// 归一化并旋转90度得到法向量
-		nx := -dy / l
-		ny := dx / l
+		rIn := ripple.Radius
+		rOut := ripple.Radius + thickness
 
-		// 计算宽度
-		w1 := width * p1.Life
-		w2 := width * p2.Life
+		centerIndex := uint16(len(tm.vertices))
 
-		// 计算颜色 alpha
-		// 优化：只乘一次 alpha
-		c1A := a * float32(p1.Life)
-		c2A := a * float32(p2.Life)
+		for i := 0; i <= segments; i++ {
+			angle := float64(i) * 2 * math.Pi / segments
+			sin, cos := math.Sincos(angle)
 
-		// P1 Left
-		v1 := ebiten.Vertex{
-			DstX:   float32(p1.X + nx*w1),
-			DstY:   float32(p1.Y + ny*w1),
-			ColorR: r * c1A, ColorG: g * c1A, ColorB: b * c1A, ColorA: c1A,
-		}
-		// P1 Right
-		v2 := ebiten.Vertex{
-			DstX:   float32(p1.X - nx*w1),
-			DstY:   float32(p1.Y - ny*w1),
-			ColorR: r * c1A, ColorG: g * c1A, ColorB: b * c1A, ColorA: c1A,
-		}
-		// P2 Left
-		v3 := ebiten.Vertex{
-			DstX:   float32(p2.X + nx*w2),
-			DstY:   float32(p2.Y + ny*w2),
-			ColorR: r * c2A, ColorG: g * c2A, ColorB: b * c2A, ColorA: c2A,
-		}
-		// P2 Right
-		v4 := ebiten.Vertex{
-			DstX:   float32(p2.X - nx*w2),
-			DstY:   float32(p2.Y - ny*w2),
-			ColorR: r * c2A, ColorG: g * c2A, ColorB: b * c2A, ColorA: c2A,
+			// Inner vertex
+			tm.vertices = append(tm.vertices, ebiten.Vertex{
+				DstX:   float32(ripple.X + rIn*cos),
+				DstY:   float32(ripple.Y + rIn*sin),
+				ColorR: r * baseAlpha, ColorG: g * baseAlpha, ColorB: b * baseAlpha, ColorA: baseAlpha,
+			})
+
+			// Outer vertex
+			tm.vertices = append(tm.vertices, ebiten.Vertex{
+				DstX:   float32(ripple.X + rOut*cos),
+				DstY:   float32(ripple.Y + rOut*sin),
+				ColorR: r * baseAlpha, ColorG: g * baseAlpha, ColorB: b * baseAlpha, ColorA: baseAlpha,
+			})
 		}
 
-		baseIndex := uint16(len(tm.vertices))
-		tm.vertices = append(tm.vertices, v1, v2, v3, v4)
-		tm.indices = append(tm.indices, baseIndex, baseIndex+1, baseIndex+2, baseIndex+1, baseIndex+3, baseIndex+2)
+		for i := 0; i < segments; i++ {
+			idx := centerIndex + uint16(i*2)
+			tm.indices = append(tm.indices, idx, idx+1, idx+2, idx+1, idx+3, idx+2)
+		}
 	}
 
 	if len(tm.vertices) > 0 {
 		screen.DrawTriangles(tm.vertices, tm.indices, tm.whiteImage, &ebiten.DrawTrianglesOptions{
 			Blend:     ebiten.BlendSourceOver,
-			AntiAlias: true, // 抗锯齿会增加一些开销，但效果好
+			AntiAlias: false, // 关闭抗锯齿以提高性能
 		})
 	}
 }

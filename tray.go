@@ -127,7 +127,7 @@ func RunTray(quitChan chan struct{}, openConfigChan chan struct{}) {
 	nid.HIcon = hIcon
 
 	// 设置提示文本
-	tip := syscall.StringToUTF16("Mouse Flow - 鼠标痕迹工具")
+	tip := syscall.StringToUTF16(T("TrayTip"))
 	copy(nid.SzTip[:], tip)
 
 	win.Shell_NotifyIcon(win.NIM_ADD, &nid)
@@ -155,8 +155,8 @@ func wndProc(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
 
 			// 创建弹出菜单
 			hMenu := win.CreatePopupMenu()
-			AppendMenu(hMenu, win.MF_STRING, IDM_CONFIG, syscall.StringToUTF16Ptr("配置 (Config)"))
-			AppendMenu(hMenu, win.MF_STRING, IDM_EXIT, syscall.StringToUTF16Ptr("退出 (Exit)"))
+			AppendMenu(hMenu, win.MF_STRING, IDM_CONFIG, syscall.StringToUTF16Ptr(T("MenuConfig")))
+			AppendMenu(hMenu, win.MF_STRING, IDM_EXIT, syscall.StringToUTF16Ptr(T("MenuExit")))
 
 			// 必须设置前台窗口，否则菜单点击后不会消失
 			win.SetForegroundWindow(hwnd)

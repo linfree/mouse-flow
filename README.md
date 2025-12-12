@@ -1,5 +1,7 @@
 # Mouse Flow (鼠标流光痕迹)
 
+**中文文档** | [English](README_EN.md)
+
 Mouse Flow 是一款运行在 Windows 平台上的轻量级鼠标痕迹工具，它能为你的鼠标光标添加类似“水果忍者”的炫酷拖尾效果。
 
 ![Screenshot Placeholder](screenshots/preview.gif)

@@ -158,6 +158,38 @@ func (tm *TraceManager) Draw(screen *ebiten.Image) {
 	// 1. 绘制轨迹
 	if len(tm.points) >= 2 {
 		width := tm.config.TailWidth
+
+		// 辅助函数：绘制实心圆 (用于平滑连接处)
+		addCircle := func(x, y, radius float64, red, green, blue, alpha float32) {
+			if radius < 0.5 {
+				return
+			}
+			const circleSegments = 12
+			centerIdx := uint16(len(tm.vertices))
+
+			// Center vertex
+			tm.vertices = append(tm.vertices, ebiten.Vertex{
+				DstX:   float32(x),
+				DstY:   float32(y),
+				ColorR: red, ColorG: green, ColorB: blue, ColorA: alpha,
+			})
+
+			for i := 0; i <= circleSegments; i++ {
+				angle := float64(i) * 2 * math.Pi / circleSegments
+				sin, cos := math.Sincos(angle)
+				tm.vertices = append(tm.vertices, ebiten.Vertex{
+					DstX:   float32(x + radius*cos),
+					DstY:   float32(y + radius*sin),
+					ColorR: red, ColorG: green, ColorB: blue, ColorA: alpha,
+				})
+			}
+
+			for i := 0; i < circleSegments; i++ {
+				// center, current, next
+				tm.indices = append(tm.indices, centerIdx, centerIdx+1+uint16(i), centerIdx+1+uint16(i+1))
+			}
+		}
+
 		for i := 0; i < len(tm.points)-1; i++ {
 			// 使用指针访问以避免复制大结构体（虽然这里结构体很小）
 			p1 := &tm.points[i]
@@ -212,7 +244,16 @@ func (tm *TraceManager) Draw(screen *ebiten.Image) {
 			baseIndex := uint16(len(tm.vertices))
 			tm.vertices = append(tm.vertices, v1, v2, v3, v4)
 			tm.indices = append(tm.indices, baseIndex, baseIndex+1, baseIndex+2, baseIndex+1, baseIndex+3, baseIndex+2)
+
+			// 在 p1 处绘制圆角连接
+			addCircle(p1.X, p1.Y, w1, r*c1A, g*c1A, b*c1A, c1A)
 		}
+
+		// 在最后一个点绘制圆角端点
+		lastP := &tm.points[len(tm.points)-1]
+		lastW := width * lastP.Life
+		lastAlpha := a * float32(lastP.Life)
+		addCircle(lastP.X, lastP.Y, lastW, r*lastAlpha, g*lastAlpha, b*lastAlpha, lastAlpha)
 	}
 
 	// 2. 绘制波纹 (圆环)
@@ -259,8 +300,19 @@ func (tm *TraceManager) Draw(screen *ebiten.Image) {
 	}
 
 	if len(tm.vertices) > 0 {
+		// 使用 Max 混合模式解决重叠部分颜色变深的问题
+		// 当半透明的圆角和线段重叠时，Max 模式会取最大透明度而不是叠加，从而保持颜色均匀
+		blend := ebiten.Blend{
+			BlendFactorSourceRGB:        ebiten.BlendFactorOne,
+			BlendFactorDestinationRGB:   ebiten.BlendFactorOne,
+			BlendOperationRGB:           ebiten.BlendOperationMax,
+			BlendFactorSourceAlpha:      ebiten.BlendFactorOne,
+			BlendFactorDestinationAlpha: ebiten.BlendFactorOne,
+			BlendOperationAlpha:         ebiten.BlendOperationMax,
+		}
+
 		screen.DrawTriangles(tm.vertices, tm.indices, tm.whiteImage, &ebiten.DrawTrianglesOptions{
-			Blend:     ebiten.BlendSourceOver,
+			Blend:     blend,
 			AntiAlias: false, // 关闭抗锯齿以提高性能
 		})
 	}

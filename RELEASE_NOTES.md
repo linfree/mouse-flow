@@ -1,3 +1,21 @@
+# Release v1.1.1 - Smooth Trace Rendering | 丝滑轨迹渲染优化
+
+## 🇬🇧 English
+
+### 🚀 Improvements
+*   **Smooth Trace Rendering**: Implemented round joints and caps for the mouse trace. This eliminates jagged edges when the mouse moves quickly or turns sharply, resulting in a much smoother look.
+*   **Better Blending**: Switched to a "Max" blending mode for the trace rendering. This prevents the "dark spots" where trace segments overlap, ensuring a uniform color and transparency throughout the trail.
+
+---
+
+## 🇨🇳 中文
+
+### 🚀 改进
+*   **丝滑轨迹渲染**: 为鼠标轨迹实现了圆角连接和圆角端点。这消除了鼠标快速移动或急转弯时的锯齿边缘，使轨迹看起来更加平滑圆润。
+*   **混合模式优化**: 将轨迹渲染的混合模式切换为 "Max" 模式。这解决了轨迹段重叠处颜色变深的问题，确保了整个拖尾的颜色和透明度均匀一致。
+
+---
+
 # Release v1.1.0 - Ripple Effect & Multi-language Support | 水波纹特效与多语言支持
 
 ## 🇬🇧 English
